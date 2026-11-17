@@ -95,7 +95,11 @@ CONFIG = {
     },                                     # (0 = no trace condition; ignored with --no_track)
                                            # a group whose best grasp fails goes to its 2nd, 3rd ... best grasp;
                                            # a group with none that passes is skipped
-    "VIS": {"show_groups": 10, "members": True, "gripper_mm": 3.0, "point_mm": 4.0},
+    "VIS": {
+        "show": "super",                   # --vis draws: "super" = the super candidates (as in the terminal),
+                                           # "groups" = the top show_groups groups (groups.csv order), "both"
+        "show_groups": 10, "members": True, "gripper_mm": 3.0, "point_mm": 4.0,
+    },
 }
 # =====================================================================================================
 
@@ -376,6 +380,7 @@ def super_candidates(groups, cands, ids, cfg, tracking):
     if len(picked) < want:
         print(f"  [WARN] only {len(picked)} groups have a grasp with {cond}")
     print("  cand = which grasp of its group (1 = the group's best); pose in the camera frame (m)")
+    return picked
 
 
 def rot_cols(r):
@@ -557,15 +562,25 @@ def main():
     print(f"\nTIME  load {t['load_s']:.2f} s | detect {t['detect_s']:.2f} s ({det}) | mask {t.get('mask_s', 0.0):.2f} s"
           f" | grouping {t['group_s']:.2f} s | tracking {t.get('track_s', 0.0):.2f} s | total {t['total_s']:.2f} s")
     print(f"[out] {out}: grasps.csv ({len(grasp_rows)} rows), groups.csv ({len(group_rows)} rows)")
-    super_candidates(groups, cands, grasp_id, cfg["SUPER"], tracking)
+    picked = super_candidates(groups, cands, grasp_id, cfg["SUPER"], tracking)
 
     if args.vis:
         fr = frames[0]
         sel = np.random.default_rng(0).choice(len(fr["xyz"]), min(len(fr["xyz"]), 300000), replace=False)
         for g in groups:
             g.setdefault("trace_mean", None)
-        gat.visualise(fr["xyz"][sel], fr["rgb"][sel], groups, cands, [], [], [], cfg,
-                      f"{inp.name}: {len(groups)} groups" + (" + trace" if tracking else ""))
+        show = cfg["VIS"]["show"]
+        ext, ext_rows = [], []
+        if show in ("super", "both"):                     # the super candidates, magenta, labelled as in the terminal
+            for n_, (g, k, i) in enumerate(picked, 1):
+                c = cands[i]
+                ext.append({"name": f"S{n_} id{grasp_id[i]}", "pos": c["pos"], "R": c["R"], "width": c["width"],
+                            "depth": c["depth"]})
+                ext_rows.append({"group": g["group"], "trace": c["trace"] if tracking else 0.0})
+        vis_cfg = {**cfg, "VIS": {**cfg["VIS"], "show_groups": 0 if show == "super" else cfg["VIS"]["show_groups"]}}
+        print(f"[vis] showing: {show} (CONFIG VIS 'show'); super candidates in magenta, labelled S<n> id<grasp_id>")
+        gat.visualise(fr["xyz"][sel], fr["rgb"][sel], groups, cands, [], ext, ext_rows, vis_cfg,
+                      f"{inp.name}: " + ("super candidates" if show == "super" else f"{len(groups)} groups"))
 
 
 if __name__ == "__main__":
